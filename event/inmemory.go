@@ -30,10 +30,13 @@ func (b *InMemoryBus) Publish(ctx context.Context, envelope Envelope) error {
 	return nil
 }
 
-func (b *InMemoryBus) Subscribe(eventType string, handler func(context.Context, Envelope) error) {
+func (b *InMemoryBus) Subscribe(ctx context.Context, topic string, handler func(Envelope) error) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.handlers[eventType] = append(b.handlers[eventType], handler)
+	b.handlers[topic] = append(b.handlers[topic], func(ctx context.Context, env Envelope) error {
+		return handler(env)
+	})
+	return nil
 }
 
 func (b *InMemoryBus) Close() error { return nil }

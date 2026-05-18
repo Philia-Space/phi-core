@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -17,9 +18,11 @@ func New() *Config {
 	c := &Config{
 		data: make(map[string]string),
 	}
-	// Load all env vars
 	for _, e := range os.Environ() {
-		// Simple parsing; production would use a proper env loader
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			c.data[parts[0]] = parts[1]
+		}
 	}
 	return c
 }

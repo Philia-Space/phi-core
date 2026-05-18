@@ -2,6 +2,8 @@ package consistency
 
 import (
 	"context"
+	"errors"
+	"fmt"
 )
 
 // OutboxStore persists events to an outbox table for reliable delivery.
@@ -44,15 +46,23 @@ func (p *OutboxProcessor) ProcessPending(ctx context.Context) error {
 	}
 
 	ids := make([]string, 0, len(entries))
+	var errs []error
 	for _, entry := range entries {
 		if err := p.publisher(ctx, entry); err != nil {
+			errs = append(errs, fmt.Errorf("failed to publish event %s: %w", entry.ID, err))
 			continue
 		}
 		ids = append(ids, entry.ID)
 	}
 
 	if len(ids) > 0 {
-		return p.store.MarkProcessed(ctx, ids)
+		if markErr := p.store.MarkProcessed(ctx, ids); markErr != nil {
+			errs = append(errs, fmt.Errorf("failed to mark events processed: %w", markErr))
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 	return nil
 }
@@ -76,8 +86,6 @@ func NewSaga(steps []SagaStep) *Saga {
 
 // Execute runs all steps, compensating on failure.
 func (s *Saga) Execute(ctx context.Context) error {
-	completed := 0
-
 	for i, step := range s.steps {
 		if err := step.Action(ctx); err != nil {
 			// Compensate completed steps in reverse
@@ -86,7 +94,6 @@ func (s *Saga) Execute(ctx context.Context) error {
 			}
 			return err
 		}
-		completed = i + 1
 	}
 
 	return nil

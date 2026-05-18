@@ -2,6 +2,7 @@ package coordination
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -25,10 +26,12 @@ type LeaderElection interface {
 
 // InMemoryLock is a simple in-memory lock for single-instance dev.
 type InMemoryLock struct {
+	mu    sync.Mutex
 	locks map[string]*memoryLock
 }
 
 type memoryLock struct {
+	mu        sync.Mutex
 	key       string
 	expiresAt time.Time
 }
@@ -40,6 +43,15 @@ func NewInMemoryLock() *InMemoryLock {
 }
 
 func (l *InMemoryLock) Acquire(ctx context.Context, key string, ttl time.Duration) (Lock, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if existing, ok := l.locks[key]; ok {
+		if time.Now().Before(existing.expiresAt) {
+			return nil, ErrLockAlreadyHeld
+		}
+	}
+
 	ml := &memoryLock{
 		key:       key,
 		expiresAt: time.Now().Add(ttl),
@@ -49,10 +61,25 @@ func (l *InMemoryLock) Acquire(ctx context.Context, key string, ttl time.Duratio
 }
 
 func (l *memoryLock) Release(ctx context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.expiresAt = time.Time{}
 	return nil
 }
 
 func (l *memoryLock) Extend(ctx context.Context, ttl time.Duration) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.expiresAt = time.Now().Add(ttl)
 	return nil
 }
+
+// ErrLockAlreadyHeld is returned when a lock is already held.
+var ErrLockAlreadyHeld = &LockError{message: "lock already held"}
+
+// LockError represents a lock error.
+type LockError struct {
+	message string
+}
+
+func (e *LockError) Error() string { return e.message }

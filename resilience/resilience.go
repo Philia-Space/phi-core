@@ -2,6 +2,7 @@ package resilience
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -62,6 +63,7 @@ const (
 
 // CircuitBreaker implements the circuit breaker pattern.
 type CircuitBreaker struct {
+	mu             sync.Mutex
 	state          CircuitState
 	failureCount   int
 	successCount   int
@@ -83,16 +85,21 @@ func NewCircuitBreaker(threshold int, timeout time.Duration) *CircuitBreaker {
 
 // Execute runs fn if the circuit allows.
 func (cb *CircuitBreaker) Execute(fn func() error) error {
+	cb.mu.Lock()
 	if cb.state == CircuitOpen {
 		if time.Since(cb.lastFailureAt) > cb.timeout {
 			cb.state = CircuitHalfOpen
 			cb.successCount = 0
 		} else {
+			cb.mu.Unlock()
 			return ErrCircuitOpen
 		}
 	}
+	cb.mu.Unlock()
 
 	err := fn()
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	if err != nil {
 		cb.onFailure()
 		return err
@@ -123,6 +130,8 @@ func (cb *CircuitBreaker) onSuccess() {
 
 // State returns the current circuit state.
 func (cb *CircuitBreaker) State() CircuitState {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	return cb.state
 }
 
